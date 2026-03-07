@@ -10,7 +10,10 @@ impl Runtime {
         Self { sender }
     }
 
-    pub fn send(&self, msg: worker::Message) -> Result<(), std::sync::mpsc::SendError<worker::Message>> {
+    pub fn send(
+        &self,
+        msg: worker::Message,
+    ) -> Result<(), std::sync::mpsc::SendError<worker::Message>> {
         self.sender.send(msg)
     }
 }

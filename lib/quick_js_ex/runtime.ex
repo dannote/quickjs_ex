@@ -7,25 +7,30 @@ defmodule QuickJSEx.Runtime do
   """
   use GenServer
 
+  @enforce_keys [:resource]
   defstruct [:resource]
 
+  @type t :: %__MODULE__{resource: reference()}
+
+  @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
   end
 
+  @spec eval(GenServer.server(), String.t()) :: QuickJSEx.js_result()
   def eval(server, code) when is_binary(code) do
     GenServer.call(server, {:eval, code}, :infinity)
   end
 
+  @spec call(GenServer.server(), String.t(), list()) :: QuickJSEx.js_result()
   def call(server, fn_name, args) when is_binary(fn_name) and is_list(args) do
     GenServer.call(server, {:call, fn_name, args}, :infinity)
   end
 
+  @spec stop(GenServer.server()) :: :ok
   def stop(server) do
     GenServer.stop(server)
   end
-
-  # --- Callbacks ---
 
   @impl true
   def init(_opts) do
@@ -64,6 +69,7 @@ defmodule QuickJSEx.Runtime do
 
   def terminate(_reason, _state), do: :ok
 
+  @spec decode_result(String.t()) :: {:ok, term()} | {:error, String.t()}
   defp decode_result(json) do
     case Jason.decode(json) do
       {:ok, value} -> {:ok, value}

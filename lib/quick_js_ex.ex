@@ -28,22 +28,29 @@ defmodule QuickJSEx do
       {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}, %{}])
   """
 
+  @type runtime :: GenServer.server()
+  @type js_result :: {:ok, term()} | {:error, String.t()}
+
   @doc "Start a new JavaScript runtime."
+  @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
     QuickJSEx.Runtime.start_link(opts)
   end
 
   @doc "Evaluate JavaScript code and return the result."
+  @spec eval(runtime(), String.t()) :: js_result()
   def eval(runtime, code) do
     QuickJSEx.Runtime.eval(runtime, code)
   end
 
   @doc "Call a global JavaScript function by name with the given arguments."
+  @spec call(runtime(), String.t(), list()) :: js_result()
   def call(runtime, fn_name, args \\ []) do
     QuickJSEx.Runtime.call(runtime, fn_name, args)
   end
 
   @doc "Stop a runtime."
+  @spec stop(runtime()) :: :ok
   def stop(runtime) do
     QuickJSEx.Runtime.stop(runtime)
   end

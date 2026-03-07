@@ -25,4 +25,7 @@ quickjs_ex-*.tar
 # Rust binary artifacts
 /target/
 priv/native/
-target/
+
+# Dialyzer PLTs
+/priv/plts/*.plt
+/priv/plts/*.plt.hash

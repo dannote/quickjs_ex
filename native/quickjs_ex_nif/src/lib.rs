@@ -26,7 +26,10 @@ fn start_runtime(env: Env, _pid: LocalPid) -> rustler::Atom {
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
-fn eval_sync(resource: ResourceArc<runtime::Runtime>, code: String) -> NifResult<(rustler::Atom, String)> {
+fn eval_sync(
+    resource: ResourceArc<runtime::Runtime>,
+    code: String,
+) -> NifResult<(rustler::Atom, String)> {
     let (tx, rx) = std::sync::mpsc::channel();
     resource
         .send(worker::Message::Eval(code, tx))

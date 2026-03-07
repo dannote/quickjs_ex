@@ -1,4 +1,4 @@
-use rquickjs::{Context, Runtime, CatchResultExt, Value};
+use rquickjs::{CatchResultExt, Context, Runtime, Value};
 
 type ResultSender = std::sync::mpsc::Sender<Result<String, String>>;
 
@@ -22,8 +22,8 @@ impl Worker {
         rt.set_max_stack_size(1024 * 1024);
         rt.set_gc_threshold(4 * 1024 * 1024);
 
-        let ctx = Context::full(&rt)
-            .map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
+        let ctx =
+            Context::full(&rt).map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
 
         ctx.with(|ctx| {
             ctx.eval::<(), _>(
@@ -80,17 +80,24 @@ impl Worker {
                 Ok(val) => Ok(value_to_json(&ctx, val)),
                 Err(rquickjs::CaughtError::Exception(val)) => {
                     let msg = if val.is_object() {
-                        val.as_object().get::<_, String>("message").unwrap_or_default()
+                        val.as_object()
+                            .get::<_, String>("message")
+                            .unwrap_or_default()
                     } else {
                         String::new()
                     };
                     // Top-level await causes syntax errors in script mode.
                     // Common messages: "expecting ';'" (at the await keyword),
                     // "Unexpected token 'await'", "unexpected token"
-                    if msg.contains("expecting") || msg.contains("unexpected") || msg.contains("await") {
+                    if msg.contains("expecting")
+                        || msg.contains("unexpected")
+                        || msg.contains("await")
+                    {
                         Err(())
                     } else {
-                        Ok(Err(format_caught_error(rquickjs::CaughtError::Exception(val))))
+                        Ok(Err(format_caught_error(rquickjs::CaughtError::Exception(
+                            val,
+                        ))))
                     }
                 }
                 Err(e) => Ok(Err(format_caught_error(e))),
@@ -111,8 +118,8 @@ impl Worker {
         let expr_code = format!("globalThis.{result_key} = (\n{code}\n);\n");
         let try_expr: Result<bool, rquickjs::Error> = self.ctx.with(|ctx| {
             use rquickjs::Module;
-            let module = Module::declare(ctx.clone(), format!("<module-{id}-expr>"), expr_code)
-                .catch(&ctx);
+            let module =
+                Module::declare(ctx.clone(), format!("<module-{id}-expr>"), expr_code).catch(&ctx);
             match module {
                 Ok(m) => match m.eval().catch(&ctx) {
                     Ok(_) => Ok(true),
@@ -147,18 +154,14 @@ impl Worker {
         };
 
         let id2 = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let declare_result = self.ctx.with(|ctx| {
+        self.ctx.with(|ctx| {
             use rquickjs::Module;
             let module = Module::declare(ctx.clone(), format!("<module-{id2}>"), module_code)
                 .catch(&ctx)
                 .map_err(format_caught_error)?;
             module.eval().catch(&ctx).map_err(format_caught_error)?;
             Ok::<_, String>(())
-        });
-
-        if let Err(e) = declare_result {
-            return Err(e);
-        }
+        })?;
 
         self.drain_jobs();
 
@@ -174,16 +177,16 @@ impl Worker {
 
     fn call(&self, fn_name: &str, args_json: &str) -> Result<String, String> {
         self.ctx.with(|ctx| {
-            let code = format!(
-                r#"JSON.stringify({fn_name}.apply(null, {args_json}))"#
-            );
+            let code = format!(r#"JSON.stringify({fn_name}.apply(null, {args_json}))"#);
             let val: Value = ctx
                 .eval(code.as_bytes().to_vec())
                 .catch(&ctx)
                 .map_err(format_caught_error)?;
 
             if let Some(s) = val.as_string() {
-                let json_str = s.to_string().map_err(|e| format!("String conversion: {e}"))?;
+                let json_str = s
+                    .to_string()
+                    .map_err(|e| format!("String conversion: {e}"))?;
                 Ok(json_str)
             } else {
                 Ok("null".to_string())
@@ -198,7 +201,9 @@ fn value_to_json<'js>(ctx: &rquickjs::Ctx<'js>, val: Value<'js>) -> Result<Strin
     }
 
     if let Some(s) = val.as_string() {
-        return s.to_string().map_err(|e| format!("String conversion error: {e}"));
+        return s
+            .to_string()
+            .map_err(|e| format!("String conversion error: {e}"));
     }
 
     let json: rquickjs::String = ctx
@@ -206,7 +211,8 @@ fn value_to_json<'js>(ctx: &rquickjs::Ctx<'js>, val: Value<'js>) -> Result<Strin
         .map_err(|e| format!("JSON stringify error: {e}"))?
         .ok_or_else(|| "Value is not JSON-serializable".to_string())?;
 
-    json.to_string().map_err(|e| format!("String conversion error: {e}"))
+    json.to_string()
+        .map_err(|e| format!("String conversion error: {e}"))
 }
 
 fn format_caught_error(err: rquickjs::CaughtError<'_>) -> String {
