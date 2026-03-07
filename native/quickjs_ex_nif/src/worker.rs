@@ -6,6 +6,7 @@ pub enum Message {
     Eval(String, ResultSender),
     Call(String, String, ResultSender),
     LoadModule(String, String, ResultSender),
+    Reset(ResultSender),
     Stop(std::sync::mpsc::Sender<()>),
 }
 
@@ -23,8 +24,13 @@ impl Worker {
         rt.set_max_stack_size(1024 * 1024);
         rt.set_gc_threshold(4 * 1024 * 1024);
 
+        let ctx = Self::create_context(&rt)?;
+        Ok(Self { rt, ctx })
+    }
+
+    fn create_context(rt: &Runtime) -> Result<Context, String> {
         let ctx =
-            Context::full(&rt).map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
+            Context::full(rt).map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
 
         ctx.with(|ctx| {
             ctx.eval::<(), _>(
@@ -42,7 +48,12 @@ impl Worker {
             .map_err(|e| format!("Failed to install console stub: {e:?}"))
         })?;
 
-        Ok(Self { rt, ctx })
+        Ok(ctx)
+    }
+
+    fn reset(&mut self) -> Result<String, String> {
+        self.ctx = Self::create_context(&self.rt)?;
+        Ok("ok".to_string())
     }
 
     pub fn run(&mut self, receiver: std::sync::mpsc::Receiver<Message>) {
@@ -58,6 +69,10 @@ impl Worker {
                 }
                 Message::LoadModule(name, code, tx) => {
                     let result = self.load_module(&name, &code);
+                    let _ = tx.send(result);
+                }
+                Message::Reset(tx) => {
+                    let result = self.reset();
                     let _ = tx.send(result);
                 }
                 Message::Stop(tx) => {

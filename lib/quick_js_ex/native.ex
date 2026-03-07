@@ -18,6 +18,9 @@ defmodule QuickJSEx.Native do
           {:ok, String.t()} | {:error, String.t()}
   def load_module(_runtime, _name, _code), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec reset_runtime(reference()) :: {:ok, String.t()} | {:error, String.t()}
+  def reset_runtime(_runtime), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec stop_runtime(reference()) :: :ok
   def stop_runtime(_runtime), do: :erlang.nif_error(:nif_not_loaded)
 end

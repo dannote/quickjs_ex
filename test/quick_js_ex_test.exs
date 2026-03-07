@@ -226,6 +226,38 @@ defmodule QuickJSExTest do
     end
   end
 
+  describe "reset" do
+    test "clears all global state" do
+      {:ok, rt} = QuickJSEx.start()
+      {:ok, _} = QuickJSEx.eval(rt, "globalThis.x = 42")
+      assert {:ok, 42} = QuickJSEx.eval(rt, "x")
+
+      assert :ok = QuickJSEx.reset(rt)
+      assert {:error, _} = QuickJSEx.eval(rt, "x")
+      QuickJSEx.stop(rt)
+    end
+
+    test "clears loaded modules" do
+      {:ok, rt} = QuickJSEx.start()
+      :ok = QuickJSEx.load_module(rt, "m", "export function f() { return 1; }")
+      assert {:ok, 1} = QuickJSEx.call(rt, "f", [])
+
+      :ok = QuickJSEx.reset(rt)
+      assert {:error, _} = QuickJSEx.call(rt, "f", [])
+      QuickJSEx.stop(rt)
+    end
+
+    test "runtime is usable after reset" do
+      {:ok, rt} = QuickJSEx.start()
+      {:ok, _} = QuickJSEx.eval(rt, "globalThis.x = 1")
+      :ok = QuickJSEx.reset(rt)
+
+      {:ok, _} = QuickJSEx.eval(rt, "globalThis.y = 2")
+      assert {:ok, 2} = QuickJSEx.eval(rt, "y")
+      QuickJSEx.stop(rt)
+    end
+  end
+
   describe "error handling" do
     test "syntax error" do
       {:ok, rt} = QuickJSEx.start()

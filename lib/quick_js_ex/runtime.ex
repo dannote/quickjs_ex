@@ -33,6 +33,11 @@ defmodule QuickJSEx.Runtime do
     GenServer.call(server, {:load_module, name, code}, :infinity)
   end
 
+  @spec reset(GenServer.server()) :: :ok | {:error, String.t()}
+  def reset(server) do
+    GenServer.call(server, :reset, :infinity)
+  end
+
   @spec stop(GenServer.server()) :: :ok
   def stop(server) do
     GenServer.stop(server)
@@ -69,6 +74,13 @@ defmodule QuickJSEx.Runtime do
 
   def handle_call({:load_module, name, code}, _from, %{resource: resource} = state) do
     case QuickJSEx.Native.load_module(resource, name, code) do
+      {:ok, _} -> {:reply, :ok, state}
+      {:error, msg} -> {:reply, {:error, msg}, state}
+    end
+  end
+
+  def handle_call(:reset, _from, %{resource: resource} = state) do
+    case QuickJSEx.Native.reset_runtime(resource) do
       {:ok, _} -> {:reply, :ok, state}
       {:error, msg} -> {:reply, {:error, msg}, state}
     end

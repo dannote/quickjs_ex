@@ -69,6 +69,18 @@ defmodule QuickJSEx do
     QuickJSEx.Runtime.load_module(runtime, name, code)
   end
 
+  @doc """
+  Reset the runtime to a fresh state.
+
+  Replaces the JS context with a new one, clearing all global state,
+  loaded modules, and function definitions. The underlying OS thread
+  and runtime are reused.
+  """
+  @spec reset(runtime()) :: :ok | {:error, String.t()}
+  def reset(runtime) do
+    QuickJSEx.Runtime.reset(runtime)
+  end
+
   @doc "Stop a runtime."
   @spec stop(runtime()) :: :ok
   def stop(runtime) do
