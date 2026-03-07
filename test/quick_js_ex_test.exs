@@ -135,6 +135,30 @@ defmodule QuickJSExTest do
     end
   end
 
+  describe "Buffer" do
+    test "from string and toString" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "hello"} = QuickJSEx.eval(rt, ~s[Buffer.from("hello").toString()])
+      QuickJSEx.stop(rt)
+    end
+
+    test "base64 roundtrip" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "aGVsbG8="} = QuickJSEx.eval(rt, ~s[Buffer.from("hello").toString("base64")])
+
+      assert {:ok, "hello"} =
+               QuickJSEx.eval(rt, ~s[Buffer.from("aGVsbG8=", "base64").toString()])
+
+      QuickJSEx.stop(rt)
+    end
+
+    test "unicode" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "Привет"} = QuickJSEx.eval(rt, ~s[Buffer.from("Привет").toString()])
+      QuickJSEx.stop(rt)
+    end
+  end
+
   describe "state persistence" do
     test "global state persists across evals" do
       {:ok, rt} = QuickJSEx.start()

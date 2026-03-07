@@ -63,8 +63,97 @@ impl Worker {
                 .set("atob", atob)
                 .map_err(|e| format!("Failed to set atob: {e}"))?;
 
+            // Buffer polyfill — covers the subset used by Vue SSR and most npm packages
             ctx.eval::<(), _>(
                 r#"
+                (function() {
+                    function toBytes(str) {
+                        var arr = [];
+                        for (var i = 0; i < str.length; i++) {
+                            var c = str.charCodeAt(i);
+                            if (c < 0x80) {
+                                arr.push(c);
+                            } else if (c < 0x800) {
+                                arr.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+                            } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {
+                                var c2 = str.charCodeAt(++i);
+                                var cp = ((c - 0xd800) << 10) + (c2 - 0xdc00) + 0x10000;
+                                arr.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f),
+                                         0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
+                            } else {
+                                arr.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+                            }
+                        }
+                        return new Uint8Array(arr);
+                    }
+                    function fromBytes(bytes) {
+                        var str = '', i = 0;
+                        while (i < bytes.length) {
+                            var b = bytes[i++];
+                            if (b < 0x80) { str += String.fromCharCode(b); }
+                            else if (b < 0xe0) { str += String.fromCharCode(((b & 0x1f) << 6) | (bytes[i++] & 0x3f)); }
+                            else if (b < 0xf0) { str += String.fromCharCode(((b & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f)); }
+                            else {
+                                var cp = ((b & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
+                                cp -= 0x10000;
+                                str += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
+                            }
+                        }
+                        return str;
+                    }
+                    function makeBuffer(bytes, source) {
+                        bytes._source = source;
+                        bytes.toString = function(enc) {
+                            if (enc === 'base64') {
+                                var s = '';
+                                for (var i = 0; i < this.length; i++) s += String.fromCharCode(this[i]);
+                                return btoa(s);
+                            }
+                            if (!enc || enc === 'utf-8' || enc === 'utf8') return fromBytes(this);
+                            if (enc === 'binary' || enc === 'latin1') {
+                                var s = '';
+                                for (var i = 0; i < this.length; i++) s += String.fromCharCode(this[i]);
+                                return s;
+                            }
+                            return fromBytes(this);
+                        };
+                        return bytes;
+                    }
+                    globalThis.Buffer = {
+                        from: function(input, encoding) {
+                            if (typeof input === 'string') {
+                                if (encoding === 'base64') {
+                                    var str = atob(input);
+                                    var bytes = new Uint8Array(str.length);
+                                    for (var i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
+                                    return makeBuffer(bytes, input);
+                                }
+                                return makeBuffer(toBytes(input), input);
+                            }
+                            if (Array.isArray(input)) return makeBuffer(new Uint8Array(input));
+                            if (input instanceof Uint8Array) return makeBuffer(input);
+                            if (input instanceof ArrayBuffer) return makeBuffer(new Uint8Array(input));
+                            throw new TypeError('The first argument must be a string, Buffer, ArrayBuffer, or Array');
+                        },
+                        alloc: function(size) { return makeBuffer(new Uint8Array(size)); },
+                        isBuffer: function(obj) { return obj instanceof Uint8Array && typeof obj.toString === 'function' && obj._source !== undefined; },
+                        concat: function(list) {
+                            var total = 0;
+                            for (var i = 0; i < list.length; i++) total += list[i].length;
+                            var result = new Uint8Array(total);
+                            var offset = 0;
+                            for (var i = 0; i < list.length; i++) { result.set(list[i], offset); offset += list[i].length; }
+                            return makeBuffer(result);
+                        }
+                    };
+                })();"#,
+            )
+            .catch(&ctx)
+            .map_err(|e| format!("Failed to install Buffer: {e:?}"))?;
+
+            ctx.eval::<(), _>(
+                r#"
+
                 globalThis.console = {
                     log: function() {},
                     warn: function() {},
@@ -75,7 +164,7 @@ impl Worker {
                 "#,
             )
             .catch(&ctx)
-            .map_err(|e| format!("Failed to install console stub: {e:?}"))
+            .map_err(|e| format!("Failed to install globals: {e:?}"))
         })?;
 
         Ok(ctx)
