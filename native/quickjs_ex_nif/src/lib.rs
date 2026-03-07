@@ -98,6 +98,24 @@ fn call_sync(
 }
 
 #[rustler::nif(schedule = "DirtyIo")]
+fn load_module(
+    resource: ResourceArc<runtime::Runtime>,
+    name: String,
+    code: String,
+) -> NifResult<(rustler::Atom, String)> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    resource
+        .send(worker::Message::LoadModule(name, code, tx))
+        .map_err(|_| rustler::Error::Term(Box::new(atoms::dead_runtime())))?;
+
+    match rx.recv() {
+        Ok(Ok(val)) => Ok((atoms::ok(), val)),
+        Ok(Err(err)) => Ok((atoms::error(), err)),
+        Err(_) => Err(rustler::Error::Term(Box::new(atoms::dead_runtime()))),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
 fn stop_runtime(resource: ResourceArc<runtime::Runtime>) -> rustler::Atom {
     let (tx, rx) = std::sync::mpsc::channel();
     let _ = resource.send(worker::Message::Stop(tx));

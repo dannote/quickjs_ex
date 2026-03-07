@@ -5,6 +5,7 @@ type ResultSender = std::sync::mpsc::Sender<Result<String, String>>;
 pub enum Message {
     Eval(String, ResultSender),
     Call(String, String, ResultSender),
+    LoadModule(String, String, ResultSender),
     Stop(std::sync::mpsc::Sender<()>),
 }
 
@@ -55,6 +56,10 @@ impl Worker {
                     let result = self.call(&fn_name, &args_json);
                     let _ = tx.send(result);
                 }
+                Message::LoadModule(name, code, tx) => {
+                    let result = self.load_module(&name, &code);
+                    let _ = tx.send(result);
+                }
                 Message::Stop(tx) => {
                     let _ = tx.send(());
                     break;
@@ -74,9 +79,9 @@ impl Worker {
     }
 
     fn eval(&mut self, code: &str) -> Result<String, String> {
-        // Try as a script first (cheaper, covers most cases including non-await code)
-        let script_result = self.ctx.with(|ctx| {
-            match ctx.eval::<Value, _>(code).catch(&ctx) {
+        let script_result = self
+            .ctx
+            .with(|ctx| match ctx.eval::<Value, _>(code).catch(&ctx) {
                 Ok(val) => Ok(value_to_json(&ctx, val)),
                 Err(rquickjs::CaughtError::Exception(val)) => {
                     let msg = if val.is_object() {
@@ -86,9 +91,6 @@ impl Worker {
                     } else {
                         String::new()
                     };
-                    // Top-level await causes syntax errors in script mode.
-                    // Common messages: "expecting ';'" (at the await keyword),
-                    // "Unexpected token 'await'", "unexpected token"
                     if msg.contains("expecting")
                         || msg.contains("unexpected")
                         || msg.contains("await")
@@ -101,8 +103,7 @@ impl Worker {
                     }
                 }
                 Err(e) => Ok(Err(format_caught_error(e))),
-            }
-        });
+            });
 
         match script_result {
             Ok(r) => r,
@@ -114,7 +115,6 @@ impl Worker {
         let id = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result_key = format!("__qjs_result_{id}");
 
-        // Strategy 1: Try wrapping as expression (works for single/multi-line expressions with await)
         let expr_code = format!("globalThis.{result_key} = (\n{code}\n);\n");
         let try_expr: Result<bool, rquickjs::Error> = self.ctx.with(|ctx| {
             use rquickjs::Module;
@@ -141,13 +141,10 @@ impl Worker {
             });
         }
 
-        // Strategy 2: Multi-statement code — put directly as module body.
-        // Split into statements: all but last run as-is, last one captures result.
         let trimmed = code.trim();
         let module_code = if let Some(pos) = trimmed.rfind('\n') {
             let (setup, last_line) = trimmed.split_at(pos);
             let last_line = last_line.trim();
-            // If last line is a pure expression (starts with await, or is a function call, etc.)
             format!("{setup}\nglobalThis.{result_key} = {last_line};\n")
         } else {
             format!("globalThis.{result_key} = {trimmed};\n")
@@ -175,22 +172,102 @@ impl Worker {
         })
     }
 
-    fn call(&self, fn_name: &str, args_json: &str) -> Result<String, String> {
+    fn load_module(&mut self, name: &str, code: &str) -> Result<String, String> {
         self.ctx.with(|ctx| {
-            let code = format!(r#"JSON.stringify({fn_name}.apply(null, {args_json}))"#);
+            use rquickjs::Module;
+            let module = Module::declare(ctx.clone(), name, code.as_bytes().to_vec())
+                .catch(&ctx)
+                .map_err(format_caught_error)?;
+            let (module, _) = module.eval().catch(&ctx).map_err(format_caught_error)?;
+
+            let namespace: rquickjs::Object = module.namespace().map_err(|e| format!("{e}"))?;
+            let global = ctx.globals();
+
+            let keys: Vec<String> = namespace.keys::<String>().filter_map(|k| k.ok()).collect();
+
+            for key in &keys {
+                let val: Value = namespace
+                    .get(key.as_str())
+                    .unwrap_or(Value::new_undefined(ctx.clone()));
+                global
+                    .set(key.as_str(), val)
+                    .map_err(|e| format!("Failed to set global {key}: {e}"))?;
+            }
+
+            Ok::<_, String>(())
+        })?;
+
+        self.drain_jobs();
+        Ok("ok".to_string())
+    }
+
+    /// Call a global function. If it returns a Promise, resolve it via
+    /// a globalThis trampoline: install .then/.catch handlers, drain the
+    /// job queue *outside* ctx.with() (avoiding the runtime lock deadlock),
+    /// then read the settled value.
+    fn call(&mut self, fn_name: &str, args_json: &str) -> Result<String, String> {
+        let id = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let result_key = format!("__qjs_call_{id}");
+        let error_key = format!("__qjs_call_err_{id}");
+        let settled_key = format!("__qjs_call_settled_{id}");
+
+        // Phase 1: invoke the function and install promise handlers (if needed)
+        let is_promise = self.ctx.with(|ctx| {
+            // Call the function and check if result is thenable
+            let code = format!(
+                r#"(function() {{
+                    var __r = {fn_name}.apply(null, {args_json});
+                    if (__r && typeof __r === 'object' && typeof __r.then === 'function') {{
+                        __r.then(
+                            function(v) {{ globalThis.{result_key} = v; globalThis.{settled_key} = true; }},
+                            function(e) {{ globalThis.{error_key} = e instanceof Error ? e.message : String(e); globalThis.{settled_key} = true; }}
+                        );
+                        return true;
+                    }} else {{
+                        globalThis.{result_key} = __r;
+                        globalThis.{settled_key} = true;
+                        return false;
+                    }}
+                }})()"#
+            );
             let val: Value = ctx
                 .eval(code.as_bytes().to_vec())
                 .catch(&ctx)
                 .map_err(format_caught_error)?;
 
-            if let Some(s) = val.as_string() {
-                let json_str = s
-                    .to_string()
-                    .map_err(|e| format!("String conversion: {e}"))?;
-                Ok(json_str)
+            let is_promise = val.as_bool().unwrap_or(false);
+            Ok::<bool, String>(is_promise)
+        })?;
+
+        // Phase 2: drain pending jobs OUTSIDE ctx.with() to avoid deadlock
+        if is_promise {
+            self.drain_jobs();
+        }
+
+        // Phase 3: read the settled result
+        self.ctx.with(|ctx| {
+            let global = ctx.globals();
+
+            let has_error: bool = global
+                .get::<_, Value>(&*error_key)
+                .map(|v| !v.is_undefined())
+                .unwrap_or(false);
+
+            let result = if has_error {
+                let err_msg: String = global.get(&*error_key).unwrap_or_default();
+                Err(err_msg)
             } else {
-                Ok("null".to_string())
-            }
+                let val: Value = global
+                    .get(&*result_key)
+                    .unwrap_or(Value::new_undefined(ctx.clone()));
+                value_to_json(&ctx, val)
+            };
+
+            let _ = global.remove(&*result_key);
+            let _ = global.remove(&*error_key);
+            let _ = global.remove(&*settled_key);
+
+            result
         })
     }
 }

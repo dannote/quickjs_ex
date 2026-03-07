@@ -27,6 +27,12 @@ defmodule QuickJSEx.Runtime do
     GenServer.call(server, {:call, fn_name, args}, :infinity)
   end
 
+  @spec load_module(GenServer.server(), String.t(), String.t()) ::
+          :ok | {:error, String.t()}
+  def load_module(server, name, code) when is_binary(name) and is_binary(code) do
+    GenServer.call(server, {:load_module, name, code}, :infinity)
+  end
+
   @spec stop(GenServer.server()) :: :ok
   def stop(server) do
     GenServer.stop(server)
@@ -57,6 +63,13 @@ defmodule QuickJSEx.Runtime do
 
     case QuickJSEx.Native.call_sync(resource, fn_name, args_json) do
       {:ok, json} -> {:reply, decode_result(json), state}
+      {:error, msg} -> {:reply, {:error, msg}, state}
+    end
+  end
+
+  def handle_call({:load_module, name, code}, _from, %{resource: resource} = state) do
+    case QuickJSEx.Native.load_module(resource, name, code) do
+      {:ok, _} -> {:reply, :ok, state}
       {:error, msg} -> {:reply, {:error, msg}, state}
     end
   end

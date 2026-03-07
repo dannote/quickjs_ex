@@ -63,7 +63,13 @@ defmodule QuickJSExTest do
 
     test "Map and Set" do
       {:ok, rt} = QuickJSEx.start()
-      assert {:ok, 2} = QuickJSEx.eval(rt, "const m = new Map(); m.set('a', 1); m.set('b', 2); m.size")
+
+      assert {:ok, 2} =
+               QuickJSEx.eval(
+                 rt,
+                 "const m = new Map(); m.set('a', 1); m.set('b', 2); m.size"
+               )
+
       assert {:ok, 3} = QuickJSEx.eval(rt, "const s = new Set([1, 2, 3, 2, 1]); s.size")
       QuickJSEx.stop(rt)
     end
@@ -132,6 +138,90 @@ defmodule QuickJSExTest do
       {:ok, rt} = QuickJSEx.start()
       {:ok, _} = QuickJSEx.eval(rt, "function add(args) { return args[0] + args[1]; }")
       assert {:ok, 7} = QuickJSEx.call(rt, "add", [[3, 4]])
+      QuickJSEx.stop(rt)
+    end
+
+    test "call an async function" do
+      {:ok, rt} = QuickJSEx.start()
+
+      {:ok, _} =
+        QuickJSEx.eval(rt, """
+        async function fetchData(name) {
+          return { greeting: "hello " + name };
+        }
+        """)
+
+      assert {:ok, %{"greeting" => "hello world"}} = QuickJSEx.call(rt, "fetchData", ["world"])
+      QuickJSEx.stop(rt)
+    end
+
+    test "call an async function returning a string" do
+      {:ok, rt} = QuickJSEx.start()
+
+      {:ok, _} =
+        QuickJSEx.eval(rt, """
+        async function render(name, props) {
+          return "<div>" + name + ": " + JSON.stringify(props) + "</div>";
+        }
+        """)
+
+      assert {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}])
+      assert html =~ "<div>MyComponent"
+      QuickJSEx.stop(rt)
+    end
+
+    test "call a Promise-returning function that rejects" do
+      {:ok, rt} = QuickJSEx.start()
+
+      {:ok, _} =
+        QuickJSEx.eval(rt, """
+        function failAsync() {
+          return Promise.reject(new Error("async failure"));
+        }
+        """)
+
+      assert {:error, "async failure"} = QuickJSEx.call(rt, "failAsync", [])
+      QuickJSEx.stop(rt)
+    end
+  end
+
+  describe "load_module" do
+    test "loads an ES module and promotes exports to globalThis" do
+      {:ok, rt} = QuickJSEx.start()
+
+      module_code = """
+      export function greet(name) {
+        return "hello " + name;
+      }
+
+      export const VERSION = "1.0.0";
+      """
+
+      assert :ok = QuickJSEx.load_module(rt, "mylib", module_code)
+      assert {:ok, "hello world"} = QuickJSEx.call(rt, "greet", ["world"])
+      assert {:ok, "1.0.0"} = QuickJSEx.eval(rt, "VERSION")
+      QuickJSEx.stop(rt)
+    end
+
+    test "loaded module exports are callable as async" do
+      {:ok, rt} = QuickJSEx.start()
+
+      module_code = """
+      export async function render(name, props) {
+        return "<div>" + name + ": " + JSON.stringify(props) + "</div>";
+      }
+      """
+
+      assert :ok = QuickJSEx.load_module(rt, "ssr", module_code)
+      assert {:ok, html} = QuickJSEx.call(rt, "render", ["App", %{page: 1}])
+      assert html =~ "<div>App"
+      QuickJSEx.stop(rt)
+    end
+
+    test "reports module syntax errors" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:error, msg} = QuickJSEx.load_module(rt, "bad", "export function {")
+      assert is_binary(msg)
       QuickJSEx.stop(rt)
     end
   end

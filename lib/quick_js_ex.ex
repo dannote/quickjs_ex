@@ -24,7 +24,7 @@ defmodule QuickJSEx do
   ## SSR Usage
 
       {:ok, rt} = QuickJSEx.start()
-      {:ok, _} = QuickJSEx.eval(rt, File.read!("priv/static/server.js"))
+      :ok = QuickJSEx.load_module(rt, "server", File.read!("priv/static/server.js"))
       {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}, %{}])
   """
 
@@ -43,10 +43,30 @@ defmodule QuickJSEx do
     QuickJSEx.Runtime.eval(runtime, code)
   end
 
-  @doc "Call a global JavaScript function by name with the given arguments."
+  @doc """
+  Call a global JavaScript function by name with the given arguments.
+
+  Handles both sync and async (Promise-returning) functions — Promises are
+  automatically awaited before the result is returned.
+  """
   @spec call(runtime(), String.t(), list()) :: js_result()
   def call(runtime, fn_name, args \\ []) do
     QuickJSEx.Runtime.call(runtime, fn_name, args)
+  end
+
+  @doc """
+  Load an ES module into the runtime.
+
+  The module's named exports are promoted to `globalThis`, making them
+  available for `call/3`. This is the primary way to load SSR bundles
+  built with `vite build --ssr`.
+
+      :ok = QuickJSEx.load_module(rt, "server", File.read!("priv/static/server.js"))
+      {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", props, slots])
+  """
+  @spec load_module(runtime(), String.t(), String.t()) :: :ok | {:error, String.t()}
+  def load_module(runtime, name, code) do
+    QuickJSEx.Runtime.load_module(runtime, name, code)
   end
 
   @doc "Stop a runtime."

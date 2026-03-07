@@ -50,21 +50,40 @@ Requires a Rust toolchain for compilation. Install via [rustup](https://rustup.r
   ])
 """)
 
-# Call global functions
-{:ok, _} = QuickJSEx.eval(rt, "function add(a, b) { return a + b; }")
-{:ok, 7} = QuickJSEx.call(rt, "add", [3, 4])
+# Call global functions (sync and async)
+{:ok, _} = QuickJSEx.eval(rt, "async function greet(name) { return 'hi ' + name; }")
+{:ok, "hi world"} = QuickJSEx.call(rt, "greet", ["world"])
 
 # Stop when done
 QuickJSEx.stop(rt)
+```
+
+## ES Module Loading
+
+Load ES modules built with Vite, esbuild, or Rollup. Named exports are
+promoted to `globalThis`, making them callable with `call/3`:
+
+```elixir
+{:ok, rt} = QuickJSEx.start()
+
+:ok = QuickJSEx.load_module(rt, "math", """
+  export function add(a, b) { return a + b; }
+  export const PI = 3.14159;
+""")
+
+{:ok, 5} = QuickJSEx.call(rt, "add", [2, 3])
+{:ok, 3.14159} = QuickJSEx.eval(rt, "PI")
 ```
 
 ## SSR Usage (e.g., with LiveVue)
 
 ```elixir
 {:ok, rt} = QuickJSEx.start()
-{:ok, _} = QuickJSEx.eval(rt, File.read!("priv/static/server.js"))
+:ok = QuickJSEx.load_module(rt, "server", File.read!("priv/static/server.js"))
 {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}, %{}])
 ```
+
+Async `render` functions (returning Promises) are automatically awaited.
 
 ## Supervision
 
