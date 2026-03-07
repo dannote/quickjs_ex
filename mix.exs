@@ -2,7 +2,7 @@ defmodule QuickJSEx.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/nicolo-valian/quickjs_ex"
+  @source_url "https://github.com/dannote/quickjs_ex"
 
   def project do
     [
@@ -47,14 +47,25 @@ defmodule QuickJSEx.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
-      files: ~w(lib native .formatter.exs mix.exs README.md LICENSE)
+      files: ~w(
+        lib
+        native
+        .formatter.exs
+        mix.exs
+        README.md
+        LICENSE
+        CHANGELOG.md
+        Cargo.lock
+        Cargo.toml
+      )
     ]
   end
 
   defp docs do
     [
       main: "QuickJSEx",
-      source_ref: "v#{@version}"
+      source_ref: "v#{@version}",
+      extras: ["CHANGELOG.md"]
     ]
   end
 end

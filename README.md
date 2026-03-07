@@ -1,5 +1,8 @@
 # QuickJSEx
 
+[![Hex.pm](https://img.shields.io/hexpm/v/quickjs_ex.svg)](https://hex.pm/packages/quickjs_ex)
+[![Docs](https://img.shields.io/badge/hex-docs-blue.svg)](https://hexdocs.pm/quickjs_ex)
+
 Embedded [QuickJS-NG](https://quickjs-ng.github.io/quickjs/) JavaScript engine for Elixir via [Rustler](https://github.com/rusterlium/rustler) NIF.
 
 - **No external runtime** — no Node.js, Bun, or Deno required
@@ -10,6 +13,8 @@ Embedded [QuickJS-NG](https://quickjs-ng.github.io/quickjs/) JavaScript engine f
 
 ## Installation
 
+Add `quickjs_ex` to your list of dependencies in `mix.exs`:
+
 ```elixir
 def deps do
   [
@@ -18,7 +23,7 @@ def deps do
 end
 ```
 
-Requires Rust toolchain for compilation (`rustup`).
+Requires a Rust toolchain for compilation. Install via [rustup](https://rustup.rs/).
 
 ## Usage
 
@@ -56,11 +61,8 @@ QuickJSEx.stop(rt)
 ## SSR Usage (e.g., with LiveVue)
 
 ```elixir
-# Load a Vite-built SSR bundle
 {:ok, rt} = QuickJSEx.start()
 {:ok, _} = QuickJSEx.eval(rt, File.read!("priv/static/server.js"))
-
-# Call the render function
 {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}, %{}])
 ```
 
@@ -79,7 +81,7 @@ Supervisor.start_link(children, strategy: :one_for_one)
 
 ## Architecture
 
-Each `QuickJSEx.Runtime` spawns a dedicated OS thread running a QuickJS-NG context. Communication between the BEAM and the JS thread uses `std::sync::mpsc` channels. This avoids NIF scheduler contention — JS execution never blocks BEAM schedulers.
+Each `QuickJSEx.Runtime` spawns a dedicated OS thread running a QuickJS-NG context. Communication between the BEAM and the JS thread uses `std::sync::mpsc` channels. JS execution never blocks BEAM schedulers.
 
 ```
 ┌──────────────────────┐     mpsc channel     ┌─────────────────────┐
@@ -91,4 +93,4 @@ Each `QuickJSEx.Runtime` spawns a dedicated OS thread running a QuickJS-NG conte
 
 ## License
 
-MIT
+[MIT](LICENSE)
