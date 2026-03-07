@@ -226,6 +226,36 @@ defmodule QuickJSExTest do
     end
   end
 
+  describe "eval with export" do
+    test "promotes exports to globalThis" do
+      {:ok, rt} = QuickJSEx.start()
+
+      {:ok, _} =
+        QuickJSEx.eval(rt, """
+        const greeting = "hi";
+        export function greet(name) { return greeting + " " + name; }
+        export const PI = 3.14;
+        """)
+
+      assert {:ok, "hi world"} = QuickJSEx.call(rt, "greet", ["world"])
+      assert {:ok, 3.14} = QuickJSEx.eval(rt, "PI")
+      QuickJSEx.stop(rt)
+    end
+
+    test "handles export { name } syntax" do
+      {:ok, rt} = QuickJSEx.start()
+
+      {:ok, _} =
+        QuickJSEx.eval(rt, """
+        function render(n) { return "<div>" + n + "</div>"; }
+        export { render };
+        """)
+
+      assert {:ok, "<div>App</div>"} = QuickJSEx.call(rt, "render", ["App"])
+      QuickJSEx.stop(rt)
+    end
+  end
+
   describe "reset" do
     test "clears all global state" do
       {:ok, rt} = QuickJSEx.start()

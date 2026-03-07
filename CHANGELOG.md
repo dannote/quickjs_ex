@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- `eval/2` now handles code with `export` statements — exports are automatically promoted to `globalThis`, matching `load_module/3` behavior
+
 ## 0.1.0
 
 Initial release.

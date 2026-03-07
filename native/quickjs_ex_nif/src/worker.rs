@@ -108,6 +108,7 @@ impl Worker {
                     };
                     if msg.contains("expecting")
                         || msg.contains("unexpected")
+                        || msg.contains("unsupported")
                         || msg.contains("await")
                     {
                         Err(())
@@ -128,63 +129,78 @@ impl Worker {
 
     fn eval_as_module(&mut self, code: &str) -> Result<String, String> {
         let id = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let result_key = format!("__qjs_result_{id}");
+        let has_export = code.contains("export ");
 
-        let expr_code = format!("globalThis.{result_key} = (\n{code}\n);\n");
-        let try_expr: Result<bool, rquickjs::Error> = self.ctx.with(|ctx| {
-            use rquickjs::Module;
-            let module =
-                Module::declare(ctx.clone(), format!("<module-{id}-expr>"), expr_code).catch(&ctx);
-            match module {
-                Ok(m) => match m.eval().catch(&ctx) {
-                    Ok(_) => Ok(true),
+        if has_export {
+            // Module with exports: evaluate and promote exports to globalThis
+            let name = format!("<eval-module-{id}>");
+            self.load_module(&name, code)?;
+            Ok("null".to_string())
+        } else {
+            // Module without exports (e.g. top-level await): capture last expression
+            let result_key = format!("__qjs_result_{id}");
+
+            let expr_code = format!("globalThis.{result_key} = (\n{code}\n);\n");
+            let try_expr: Result<bool, rquickjs::Error> = self.ctx.with(|ctx| {
+                use rquickjs::Module;
+                let module = Module::declare(
+                    ctx.clone(),
+                    format!("<module-{id}-expr>"),
+                    expr_code,
+                )
+                .catch(&ctx);
+                match module {
+                    Ok(m) => match m.eval().catch(&ctx) {
+                        Ok(_) => Ok(true),
+                        Err(_) => Ok(false),
+                    },
                     Err(_) => Ok(false),
-                },
-                Err(_) => Ok(false),
-            }
-        });
+                }
+            });
 
-        if matches!(try_expr, Ok(true)) {
+            if matches!(try_expr, Ok(true)) {
+                self.drain_jobs();
+                return self.ctx.with(|ctx| {
+                    let global = ctx.globals();
+                    let val: Value = global
+                        .get(&*result_key)
+                        .unwrap_or(Value::new_undefined(ctx.clone()));
+                    let _ = global.remove(&*result_key);
+                    value_to_json(&ctx, val)
+                });
+            }
+
+            let trimmed = code.trim();
+            let module_code = if let Some(pos) = trimmed.rfind('\n') {
+                let (setup, last_line) = trimmed.split_at(pos);
+                let last_line = last_line.trim();
+                format!("{setup}\nglobalThis.{result_key} = {last_line};\n")
+            } else {
+                format!("globalThis.{result_key} = {trimmed};\n")
+            };
+
+            let id2 = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.ctx.with(|ctx| {
+                use rquickjs::Module;
+                let module =
+                    Module::declare(ctx.clone(), format!("<module-{id2}>"), module_code)
+                        .catch(&ctx)
+                        .map_err(format_caught_error)?;
+                module.eval().catch(&ctx).map_err(format_caught_error)?;
+                Ok::<_, String>(())
+            })?;
+
             self.drain_jobs();
-            return self.ctx.with(|ctx| {
+
+            self.ctx.with(|ctx| {
                 let global = ctx.globals();
                 let val: Value = global
                     .get(&*result_key)
                     .unwrap_or(Value::new_undefined(ctx.clone()));
                 let _ = global.remove(&*result_key);
                 value_to_json(&ctx, val)
-            });
+            })
         }
-
-        let trimmed = code.trim();
-        let module_code = if let Some(pos) = trimmed.rfind('\n') {
-            let (setup, last_line) = trimmed.split_at(pos);
-            let last_line = last_line.trim();
-            format!("{setup}\nglobalThis.{result_key} = {last_line};\n")
-        } else {
-            format!("globalThis.{result_key} = {trimmed};\n")
-        };
-
-        let id2 = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.ctx.with(|ctx| {
-            use rquickjs::Module;
-            let module = Module::declare(ctx.clone(), format!("<module-{id2}>"), module_code)
-                .catch(&ctx)
-                .map_err(format_caught_error)?;
-            module.eval().catch(&ctx).map_err(format_caught_error)?;
-            Ok::<_, String>(())
-        })?;
-
-        self.drain_jobs();
-
-        self.ctx.with(|ctx| {
-            let global = ctx.globals();
-            let val: Value = global
-                .get(&*result_key)
-                .unwrap_or(Value::new_undefined(ctx.clone()));
-            let _ = global.remove(&*result_key);
-            value_to_json(&ctx, val)
-        })
     }
 
     fn load_module(&mut self, name: &str, code: &str) -> Result<String, String> {
