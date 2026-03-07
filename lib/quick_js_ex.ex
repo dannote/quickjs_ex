@@ -31,7 +31,18 @@ defmodule QuickJSEx do
   @type runtime :: GenServer.server()
   @type js_result :: {:ok, term()} | {:error, String.t()}
 
-  @doc "Start a new JavaScript runtime."
+  @doc """
+  Start a new JavaScript runtime.
+
+  ## Options
+
+    * `:name` — GenServer name for the runtime
+    * `:browser_stubs` — when `true`, installs browser environment stubs
+      (`window`, `document`, `navigator`, `localStorage`, `process`, etc.)
+      for running SSR bundles and npm packages that reference browser globals.
+      Defaults to `false`.
+
+  """
   @spec start(keyword()) :: GenServer.on_start()
   def start(opts \\ []) do
     QuickJSEx.Runtime.start_link(opts)

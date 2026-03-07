@@ -13,165 +13,152 @@ pub enum Message {
 
 static MODULE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+static JS_TEXT_ENCODING: &str = include_str!("js/text-encoding.js");
+static JS_BUFFER: &str = include_str!("js/buffer.js");
+static JS_CONSOLE: &str = include_str!("js/console.js");
+static JS_BROWSER: &str = include_str!("js/browser.js");
+
+#[derive(Clone)]
+pub struct WorkerOpts {
+    pub browser_stubs: bool,
+}
+
+impl Default for WorkerOpts {
+    fn default() -> Self {
+        Self {
+            browser_stubs: false,
+        }
+    }
+}
+
 pub struct Worker {
     rt: Runtime,
     ctx: Context,
+    opts: WorkerOpts,
 }
 
 impl Worker {
-    pub fn new() -> Result<Self, String> {
+    pub fn new(opts: WorkerOpts) -> Result<Self, String> {
         let rt = Runtime::new().map_err(|e| format!("Failed to create QuickJS runtime: {e}"))?;
         rt.set_memory_limit(256 * 1024 * 1024);
         rt.set_max_stack_size(1024 * 1024);
         rt.set_gc_threshold(4 * 1024 * 1024);
 
-        let ctx = Self::create_context(&rt)?;
-        Ok(Self { rt, ctx })
+        let ctx = Self::create_context(&rt, &opts)?;
+        Ok(Self { rt, ctx, opts })
     }
 
-    fn create_context(rt: &Runtime) -> Result<Context, String> {
+    fn create_context(rt: &Runtime, opts: &WorkerOpts) -> Result<Context, String> {
         let ctx =
             Context::full(rt).map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
 
         ctx.with(|ctx| {
-            let globals = ctx.globals();
-
-            let btoa = Function::new(ctx.clone(), |input: String| -> rquickjs::Result<String> {
-                Ok(STANDARD.encode(input.as_bytes()))
-            })
-            .map_err(|e| format!("Failed to create btoa: {e}"))?;
-            globals
-                .set("btoa", btoa)
-                .map_err(|e| format!("Failed to set btoa: {e}"))?;
-
-            let atob = Function::new(
-                ctx.clone(),
-                |ctx: rquickjs::Ctx<'_>, input: String| -> rquickjs::Result<String> {
-                    match STANDARD.decode(&input) {
-                        Ok(bytes) => Ok(bytes.iter().map(|&b| b as char).collect()),
-                        Err(e) => {
-                            ctx.throw(
-                                rquickjs::String::from_str(ctx.clone(), &format!("Invalid base64: {e}"))?.into(),
-                            );
-                            Err(rquickjs::Error::Exception)
-                        }
-                    }
-                },
-            )
-            .map_err(|e| format!("Failed to create atob: {e}"))?;
-            globals
-                .set("atob", atob)
-                .map_err(|e| format!("Failed to set atob: {e}"))?;
-
-            // Buffer polyfill — covers the subset used by Vue SSR and most npm packages
-            ctx.eval::<(), _>(
-                r#"
-                (function() {
-                    function toBytes(str) {
-                        var arr = [];
-                        for (var i = 0; i < str.length; i++) {
-                            var c = str.charCodeAt(i);
-                            if (c < 0x80) {
-                                arr.push(c);
-                            } else if (c < 0x800) {
-                                arr.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
-                            } else if (c >= 0xd800 && c <= 0xdbff && i + 1 < str.length) {
-                                var c2 = str.charCodeAt(++i);
-                                var cp = ((c - 0xd800) << 10) + (c2 - 0xdc00) + 0x10000;
-                                arr.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f),
-                                         0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
-                            } else {
-                                arr.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
-                            }
-                        }
-                        return new Uint8Array(arr);
-                    }
-                    function fromBytes(bytes) {
-                        var str = '', i = 0;
-                        while (i < bytes.length) {
-                            var b = bytes[i++];
-                            if (b < 0x80) { str += String.fromCharCode(b); }
-                            else if (b < 0xe0) { str += String.fromCharCode(((b & 0x1f) << 6) | (bytes[i++] & 0x3f)); }
-                            else if (b < 0xf0) { str += String.fromCharCode(((b & 0x0f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f)); }
-                            else {
-                                var cp = ((b & 0x07) << 18) | ((bytes[i++] & 0x3f) << 12) | ((bytes[i++] & 0x3f) << 6) | (bytes[i++] & 0x3f);
-                                cp -= 0x10000;
-                                str += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff));
-                            }
-                        }
-                        return str;
-                    }
-                    function makeBuffer(bytes, source) {
-                        bytes._source = source;
-                        bytes.toString = function(enc) {
-                            if (enc === 'base64') {
-                                var s = '';
-                                for (var i = 0; i < this.length; i++) s += String.fromCharCode(this[i]);
-                                return btoa(s);
-                            }
-                            if (!enc || enc === 'utf-8' || enc === 'utf8') return fromBytes(this);
-                            if (enc === 'binary' || enc === 'latin1') {
-                                var s = '';
-                                for (var i = 0; i < this.length; i++) s += String.fromCharCode(this[i]);
-                                return s;
-                            }
-                            return fromBytes(this);
-                        };
-                        return bytes;
-                    }
-                    globalThis.Buffer = {
-                        from: function(input, encoding) {
-                            if (typeof input === 'string') {
-                                if (encoding === 'base64') {
-                                    var str = atob(input);
-                                    var bytes = new Uint8Array(str.length);
-                                    for (var i = 0; i < str.length; i++) bytes[i] = str.charCodeAt(i);
-                                    return makeBuffer(bytes, input);
-                                }
-                                return makeBuffer(toBytes(input), input);
-                            }
-                            if (Array.isArray(input)) return makeBuffer(new Uint8Array(input));
-                            if (input instanceof Uint8Array) return makeBuffer(input);
-                            if (input instanceof ArrayBuffer) return makeBuffer(new Uint8Array(input));
-                            throw new TypeError('The first argument must be a string, Buffer, ArrayBuffer, or Array');
-                        },
-                        alloc: function(size) { return makeBuffer(new Uint8Array(size)); },
-                        isBuffer: function(obj) { return obj instanceof Uint8Array && typeof obj.toString === 'function' && obj._source !== undefined; },
-                        concat: function(list) {
-                            var total = 0;
-                            for (var i = 0; i < list.length; i++) total += list[i].length;
-                            var result = new Uint8Array(total);
-                            var offset = 0;
-                            for (var i = 0; i < list.length; i++) { result.set(list[i], offset); offset += list[i].length; }
-                            return makeBuffer(result);
-                        }
-                    };
-                })();"#,
-            )
-            .catch(&ctx)
-            .map_err(|e| format!("Failed to install Buffer: {e:?}"))?;
-
-            ctx.eval::<(), _>(
-                r#"
-
-                globalThis.console = {
-                    log: function() {},
-                    warn: function() {},
-                    error: function() {},
-                    info: function() {},
-                    debug: function() {},
-                };
-                "#,
-            )
-            .catch(&ctx)
-            .map_err(|e| format!("Failed to install globals: {e:?}"))
+            Self::install_native_functions(&ctx)?;
+            Self::install_js_globals(&ctx, opts)
         })?;
 
         Ok(ctx)
     }
 
+    fn install_native_functions(ctx: &rquickjs::Ctx<'_>) -> Result<(), String> {
+        let globals = ctx.globals();
+
+        // atob — decode base64 to binary string
+        let atob = Function::new(
+            ctx.clone(),
+            |ctx: rquickjs::Ctx<'_>, input: String| -> rquickjs::Result<String> {
+                match STANDARD.decode(&input) {
+                    Ok(bytes) => Ok(bytes.iter().map(|&b| b as char).collect()),
+                    Err(e) => {
+                        ctx.throw(
+                            rquickjs::String::from_str(
+                                ctx.clone(),
+                                &format!("Invalid base64: {e}"),
+                            )?
+                            .into(),
+                        );
+                        Err(rquickjs::Error::Exception)
+                    }
+                }
+            },
+        )
+        .map_err(|e| format!("Failed to create atob: {e}"))?;
+        globals
+            .set("atob", atob)
+            .map_err(|e| format!("Failed to set atob: {e}"))?;
+
+        // btoa — encode binary string to base64
+        let btoa = Function::new(ctx.clone(), |input: String| -> rquickjs::Result<String> {
+            Ok(STANDARD.encode(input.as_bytes()))
+        })
+        .map_err(|e| format!("Failed to create btoa: {e}"))?;
+        globals
+            .set("btoa", btoa)
+            .map_err(|e| format!("Failed to set btoa: {e}"))?;
+
+        // __encodeUtf8 — encode JS string to UTF-8 byte values as JSON array
+        let encode_utf8 = Function::new(
+            ctx.clone(),
+            move |input: String| -> rquickjs::Result<Vec<u8>> {
+                Ok(input.into_bytes())
+            },
+        )
+        .map_err(|e| format!("Failed to create __encodeUtf8: {e}"))?;
+        globals
+            .set("__encodeUtf8", encode_utf8)
+            .map_err(|e| format!("Failed to set __encodeUtf8: {e}"))?;
+
+        // __decodeUtf8 — decode UTF-8 bytes to JS string
+        let decode_utf8 = Function::new(
+            ctx.clone(),
+            move |ctx: rquickjs::Ctx<'_>, bytes: Vec<u8>, fatal: bool| -> rquickjs::Result<String> {
+                if fatal {
+                    match std::str::from_utf8(&bytes) {
+                        Ok(s) => Ok(s.to_string()),
+                        Err(e) => {
+                            ctx.throw(
+                                rquickjs::String::from_str(ctx.clone(), &format!("Invalid UTF-8: {e}"))?.into()
+                            );
+                            Err(rquickjs::Error::Exception)
+                        }
+                    }
+                } else {
+                    Ok(String::from_utf8_lossy(&bytes).into_owned())
+                }
+            },
+        )
+        .map_err(|e| format!("Failed to create __decodeUtf8: {e}"))?;
+        globals
+            .set("__decodeUtf8", decode_utf8)
+            .map_err(|e| format!("Failed to set __decodeUtf8: {e}"))?;
+
+        Ok(())
+    }
+
+    fn install_js_globals(ctx: &rquickjs::Ctx<'_>, opts: &WorkerOpts) -> Result<(), String> {
+        ctx.eval::<(), _>(JS_TEXT_ENCODING)
+            .catch(ctx)
+            .map_err(|e| format!("Failed to install TextEncoder/TextDecoder: {e:?}"))?;
+
+        ctx.eval::<(), _>(JS_BUFFER)
+            .catch(ctx)
+            .map_err(|e| format!("Failed to install Buffer: {e:?}"))?;
+
+        ctx.eval::<(), _>(JS_CONSOLE)
+            .catch(ctx)
+            .map_err(|e| format!("Failed to install console: {e:?}"))?;
+
+        if opts.browser_stubs {
+            ctx.eval::<(), _>(JS_BROWSER)
+                .catch(ctx)
+                .map_err(|e| format!("Failed to install browser stubs: {e:?}"))?;
+        }
+
+        Ok(())
+    }
+
     fn reset(&mut self) -> Result<String, String> {
-        self.ctx = Self::create_context(&self.rt)?;
+        self.ctx = Self::create_context(&self.rt, &self.opts)?;
         Ok("ok".to_string())
     }
 
@@ -251,23 +238,18 @@ impl Worker {
         let has_export = code.contains("export ");
 
         if has_export {
-            // Module with exports: evaluate and promote exports to globalThis
             let name = format!("<eval-module-{id}>");
             self.load_module(&name, code)?;
             Ok("null".to_string())
         } else {
-            // Module without exports (e.g. top-level await): capture last expression
             let result_key = format!("__qjs_result_{id}");
 
             let expr_code = format!("globalThis.{result_key} = (\n{code}\n);\n");
             let try_expr: Result<bool, rquickjs::Error> = self.ctx.with(|ctx| {
                 use rquickjs::Module;
-                let module = Module::declare(
-                    ctx.clone(),
-                    format!("<module-{id}-expr>"),
-                    expr_code,
-                )
-                .catch(&ctx);
+                let module =
+                    Module::declare(ctx.clone(), format!("<module-{id}-expr>"), expr_code)
+                        .catch(&ctx);
                 match module {
                     Ok(m) => match m.eval().catch(&ctx) {
                         Ok(_) => Ok(true),
@@ -351,19 +333,13 @@ impl Worker {
         Ok("ok".to_string())
     }
 
-    /// Call a global function. If it returns a Promise, resolve it via
-    /// a globalThis trampoline: install .then/.catch handlers, drain the
-    /// job queue *outside* ctx.with() (avoiding the runtime lock deadlock),
-    /// then read the settled value.
     fn call(&mut self, fn_name: &str, args_json: &str) -> Result<String, String> {
         let id = MODULE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result_key = format!("__qjs_call_{id}");
         let error_key = format!("__qjs_call_err_{id}");
         let settled_key = format!("__qjs_call_settled_{id}");
 
-        // Phase 1: invoke the function and install promise handlers (if needed)
         let is_promise = self.ctx.with(|ctx| {
-            // Call the function and check if result is thenable
             let code = format!(
                 r#"(function() {{
                     var __r = {fn_name}.apply(null, {args_json});
@@ -389,12 +365,10 @@ impl Worker {
             Ok::<bool, String>(is_promise)
         })?;
 
-        // Phase 2: drain pending jobs OUTSIDE ctx.with() to avoid deadlock
         if is_promise {
             self.drain_jobs();
         }
 
-        // Phase 3: read the settled result
         self.ctx.with(|ctx| {
             let global = ctx.globals();
 

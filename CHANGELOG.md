@@ -1,10 +1,12 @@
 # Changelog
 
-## 0.1.1
+## 0.2.0
 
 - `eval/2` now handles code with `export` statements — exports are automatically promoted to `globalThis`, matching `load_module/3` behavior
-- Built-in `atob` and `btoa` (base64 encoding/decoding) available in all contexts
-- Built-in `Buffer` polyfill (`from`, `alloc`, `concat`, `isBuffer`, `toString` with utf-8/base64/binary encodings)
+- Built-in `atob`/`btoa` (base64) and `TextEncoder`/`TextDecoder` (UTF-8) available in all contexts
+- Full `Buffer` polyfill: `from`/`alloc`/`allocUnsafe`/`concat`/`compare`/`isBuffer`/`isEncoding`/`byteLength`, all encodings (utf-8, base64, base64url, hex, latin1, ascii, utf16le), read/write integer methods, `slice`/`copy`/`indexOf`/`fill`/`write`/`equals`/`compare`/`toJSON`
+- `console` stub (no-op) — prevents `console is not defined` errors
+- New `:browser_stubs` option for `start/1` — installs `window`, `document`, `navigator`, `localStorage`, `sessionStorage`, `process`, `location`, `matchMedia`, `MutationObserver`, `ResizeObserver`, `IntersectionObserver`, `Event`/`CustomEvent`, `requestAnimationFrame`, `getComputedStyle`
 
 ## 0.1.0
 

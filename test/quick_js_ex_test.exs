@@ -135,6 +135,36 @@ defmodule QuickJSExTest do
     end
   end
 
+  describe "TextEncoder/TextDecoder" do
+    test "encode and decode roundtrip" do
+      {:ok, rt} = QuickJSEx.start()
+
+      assert {:ok, "hello"} =
+               QuickJSEx.eval(rt, ~s[new TextDecoder().decode(new TextEncoder().encode("hello"))])
+
+      QuickJSEx.stop(rt)
+    end
+
+    test "unicode roundtrip" do
+      {:ok, rt} = QuickJSEx.start()
+
+      assert {:ok, "Привет 🌍"} =
+               QuickJSEx.eval(
+                 rt,
+                 ~s[new TextDecoder().decode(new TextEncoder().encode("Привет 🌍"))]
+               )
+
+      QuickJSEx.stop(rt)
+    end
+
+    test "encode returns correct byte lengths" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, 5} = QuickJSEx.eval(rt, ~s[new TextEncoder().encode("hello").length])
+      assert {:ok, 12} = QuickJSEx.eval(rt, ~s[new TextEncoder().encode("Привет").length])
+      QuickJSEx.stop(rt)
+    end
+  end
+
   describe "Buffer" do
     test "from string and toString" do
       {:ok, rt} = QuickJSEx.start()
@@ -152,9 +182,50 @@ defmodule QuickJSExTest do
       QuickJSEx.stop(rt)
     end
 
+    test "hex encoding" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "68656c6c6f"} = QuickJSEx.eval(rt, ~s[Buffer.from("hello").toString("hex")])
+
+      assert {:ok, "hello"} =
+               QuickJSEx.eval(rt, ~s[Buffer.from("68656c6c6f", "hex").toString()])
+
+      QuickJSEx.stop(rt)
+    end
+
     test "unicode" do
       {:ok, rt} = QuickJSEx.start()
       assert {:ok, "Привет"} = QuickJSEx.eval(rt, ~s[Buffer.from("Привет").toString()])
+      QuickJSEx.stop(rt)
+    end
+
+    test "isBuffer" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, true} = QuickJSEx.eval(rt, ~s[Buffer.isBuffer(Buffer.from("x"))])
+      assert {:ok, false} = QuickJSEx.eval(rt, ~s[Buffer.isBuffer("x")])
+      QuickJSEx.stop(rt)
+    end
+
+    test "concat" do
+      {:ok, rt} = QuickJSEx.start()
+
+      assert {:ok, "abcd"} =
+               QuickJSEx.eval(
+                 rt,
+                 ~s{Buffer.concat([Buffer.from("ab"), Buffer.from("cd")]).toString()}
+               )
+
+      QuickJSEx.stop(rt)
+    end
+
+    test "read and write integers" do
+      {:ok, rt} = QuickJSEx.start()
+
+      assert {:ok, "deadbeef"} =
+               QuickJSEx.eval(
+                 rt,
+                 "var b = Buffer.alloc(4); b.writeUInt32BE(0xDEADBEEF, 0); b.readUInt32BE(0).toString(16)"
+               )
+
       QuickJSEx.stop(rt)
     end
   end
@@ -351,6 +422,26 @@ defmodule QuickJSExTest do
       {:ok, rt} = QuickJSEx.start()
       assert {:error, msg} = QuickJSEx.eval(rt, "throw new Error('boom')")
       assert msg =~ "boom"
+      QuickJSEx.stop(rt)
+    end
+  end
+
+  describe "browser_stubs option" do
+    test "browser globals are undefined by default" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "undefined"} = QuickJSEx.eval(rt, "typeof window")
+      assert {:ok, "undefined"} = QuickJSEx.eval(rt, "typeof document")
+      QuickJSEx.stop(rt)
+    end
+
+    test "browser globals are available when enabled" do
+      {:ok, rt} = QuickJSEx.start(browser_stubs: true)
+      assert {:ok, "object"} = QuickJSEx.eval(rt, "typeof window")
+      assert {:ok, "object"} = QuickJSEx.eval(rt, "typeof document")
+      assert {:ok, nil} = QuickJSEx.eval(rt, "document.querySelector('div')")
+      assert {:ok, "production"} = QuickJSEx.eval(rt, "process.env.NODE_ENV")
+      assert {:ok, nil} = QuickJSEx.eval(rt, "localStorage.getItem('x')")
+      assert {:ok, "function"} = QuickJSEx.eval(rt, "typeof MutationObserver")
       QuickJSEx.stop(rt)
     end
   end

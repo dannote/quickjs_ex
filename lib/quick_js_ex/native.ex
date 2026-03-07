@@ -2,8 +2,8 @@ defmodule QuickJSEx.Native do
   @moduledoc false
   use Rustler, otp_app: :quickjs_ex, crate: "quickjs_ex_nif"
 
-  @spec start_runtime(pid()) :: :ok
-  def start_runtime(_pid), do: :erlang.nif_error(:nif_not_loaded)
+  @spec start_runtime(pid(), boolean()) :: :ok
+  def start_runtime(_pid, _browser_stubs), do: :erlang.nif_error(:nif_not_loaded)
 
   @spec eval_sync(reference(), String.t()) :: {:ok, String.t()} | {:error, String.t()}
   def eval_sync(_runtime, _code), do: :erlang.nif_error(:nif_not_loaded)

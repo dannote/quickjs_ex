@@ -5,11 +5,13 @@ mod worker;
 use rustler::{Env, LocalPid, NifResult, ResourceArc, Term};
 
 #[rustler::nif]
-fn start_runtime(env: Env, _pid: LocalPid) -> rustler::Atom {
+fn start_runtime(env: Env, _pid: LocalPid, browser_stubs: bool) -> rustler::Atom {
     let task_pid = env.pid();
     let (sender, receiver) = std::sync::mpsc::channel::<worker::Message>();
 
-    std::thread::spawn(move || match worker::Worker::new() {
+    let opts = worker::WorkerOpts { browser_stubs };
+
+    std::thread::spawn(move || match worker::Worker::new(opts) {
         Ok(mut w) => {
             crate::runtime::send_to_pid(
                 &task_pid,

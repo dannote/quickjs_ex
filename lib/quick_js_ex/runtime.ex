@@ -44,8 +44,9 @@ defmodule QuickJSEx.Runtime do
   end
 
   @impl true
-  def init(_opts) do
-    QuickJSEx.Native.start_runtime(self())
+  def init(opts) do
+    browser_stubs = Keyword.get(opts, :browser_stubs, false)
+    QuickJSEx.Native.start_runtime(self(), browser_stubs)
 
     receive do
       {:ok, resource} -> {:ok, %__MODULE__{resource: resource}}
