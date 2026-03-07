@@ -10,3 +10,4 @@ crate-type = ["cdylib"]
 [dependencies]
 rustler = "0.37"
 rquickjs = { version = "0.11", features = ["bindgen", "parallel", "loader"] }
+base64 = "0.22"

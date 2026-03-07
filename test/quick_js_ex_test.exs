@@ -115,6 +115,26 @@ defmodule QuickJSExTest do
     end
   end
 
+  describe "atob/btoa" do
+    test "btoa encodes to base64" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "aGVsbG8="} = QuickJSEx.eval(rt, ~s[btoa("hello")])
+      QuickJSEx.stop(rt)
+    end
+
+    test "atob decodes from base64" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "hello"} = QuickJSEx.eval(rt, ~s[atob("aGVsbG8=")])
+      QuickJSEx.stop(rt)
+    end
+
+    test "roundtrip" do
+      {:ok, rt} = QuickJSEx.start()
+      assert {:ok, "test 123!"} = QuickJSEx.eval(rt, ~s[atob(btoa("test 123!"))])
+      QuickJSEx.stop(rt)
+    end
+  end
+
   describe "state persistence" do
     test "global state persists across evals" do
       {:ok, rt} = QuickJSEx.start()

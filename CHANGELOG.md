@@ -3,6 +3,7 @@
 ## 0.1.1
 
 - `eval/2` now handles code with `export` statements — exports are automatically promoted to `globalThis`, matching `load_module/3` behavior
+- Built-in `atob` and `btoa` (base64 encoding/decoding) available in all contexts
 
 ## 0.1.0
 

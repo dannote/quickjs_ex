@@ -1,4 +1,5 @@
-use rquickjs::{CatchResultExt, Context, Runtime, Value};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use rquickjs::{CatchResultExt, Context, Function, Runtime, Value};
 
 type ResultSender = std::sync::mpsc::Sender<Result<String, String>>;
 
@@ -33,6 +34,35 @@ impl Worker {
             Context::full(rt).map_err(|e| format!("Failed to create QuickJS context: {e}"))?;
 
         ctx.with(|ctx| {
+            let globals = ctx.globals();
+
+            let btoa = Function::new(ctx.clone(), |input: String| -> rquickjs::Result<String> {
+                Ok(STANDARD.encode(input.as_bytes()))
+            })
+            .map_err(|e| format!("Failed to create btoa: {e}"))?;
+            globals
+                .set("btoa", btoa)
+                .map_err(|e| format!("Failed to set btoa: {e}"))?;
+
+            let atob = Function::new(
+                ctx.clone(),
+                |ctx: rquickjs::Ctx<'_>, input: String| -> rquickjs::Result<String> {
+                    match STANDARD.decode(&input) {
+                        Ok(bytes) => Ok(bytes.iter().map(|&b| b as char).collect()),
+                        Err(e) => {
+                            ctx.throw(
+                                rquickjs::String::from_str(ctx.clone(), &format!("Invalid base64: {e}"))?.into(),
+                            );
+                            Err(rquickjs::Error::Exception)
+                        }
+                    }
+                },
+            )
+            .map_err(|e| format!("Failed to create atob: {e}"))?;
+            globals
+                .set("atob", atob)
+                .map_err(|e| format!("Failed to set atob: {e}"))?;
+
             ctx.eval::<(), _>(
                 r#"
                 globalThis.console = {
