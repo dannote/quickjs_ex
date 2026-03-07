@@ -1,7 +1,7 @@
 defmodule QuickJSEx.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/dannote/quickjs_ex"
 
   def project do
@@ -27,7 +27,8 @@ defmodule QuickJSEx.MixProject do
 
   defp deps do
     [
-      {:rustler, "~> 0.36"},
+      {:rustler_precompiled, "~> 0.8"},
+      {:rustler, ">= 0.0.0", optional: true},
       {:jason, "~> 1.4"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
@@ -51,6 +52,7 @@ defmodule QuickJSEx.MixProject do
       files: ~w(
         lib
         native
+        checksum-*.exs
         .formatter.exs
         mix.exs
         README.md

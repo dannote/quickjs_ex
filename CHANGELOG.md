@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- Precompiled NIF binaries for macOS (aarch64, x86_64), Linux (aarch64, x86_64, gnu and musl), and Windows (x86_64, gnu and msvc) — Rust toolchain no longer required for most users
+- Uses `rustler_precompiled`; set `QUICKJS_EX_BUILD=true` to force local compilation
+
 ## 0.2.0
 
 - `eval/2` now handles code with `export` statements — exports are automatically promoted to `globalThis`, matching `load_module/3` behavior
