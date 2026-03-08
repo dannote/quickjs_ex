@@ -4,7 +4,10 @@ defmodule QuickJSEx do
 
   QuickJSEx embeds the QuickJS-NG runtime via a Rustler NIF, providing
   in-process JavaScript execution with no external runtime dependencies
-  (no Node.js, Bun, or Deno required).
+  such as Node.js, Bun, or Deno.
+
+  Precompiled NIFs are available for supported macOS, Linux, and Windows
+  targets, so a Rust toolchain is not required for most installations.
 
   ## Quick Start
 
@@ -12,20 +15,47 @@ defmodule QuickJSEx do
       {:ok, 3} = QuickJSEx.eval(rt, "1 + 2")
       QuickJSEx.stop(rt)
 
-  ## With a Supervisor
+  ## Async JavaScript
 
-      children = [
-        {QuickJSEx.Runtime, name: MyApp.JS}
-      ]
+      {:ok, rt} = QuickJSEx.start()
 
-      # Then:
-      {:ok, result} = QuickJSEx.eval(MyApp.JS, "JSON.stringify({a: 1})")
+      {:ok, [1, 2, 3]} =
+        QuickJSEx.eval(rt, "await Promise.all([Promise.resolve(1), Promise.resolve(2), Promise.resolve(3)])")
+
+  `call/3` automatically awaits Promise-returning functions.
+
+  ## ES Modules and Exports
+
+      {:ok, rt} = QuickJSEx.start()
+
+      :ok = QuickJSEx.load_module(rt, "math", "export function add(a, b) { return a + b; }\nexport const PI = 3.14159;")
+
+      {:ok, 5} = QuickJSEx.call(rt, "add", [2, 3])
+      {:ok, 3.14159} = QuickJSEx.eval(rt, "PI")
+
+  `eval/2` also supports code with `export` statements and promotes named
+  exports to `globalThis`, matching `load_module/3` behavior.
 
   ## SSR Usage
 
-      {:ok, rt} = QuickJSEx.start()
+      {:ok, rt} = QuickJSEx.start(browser_stubs: true)
       :ok = QuickJSEx.load_module(rt, "server", File.read!("priv/static/server.js"))
       {:ok, html} = QuickJSEx.call(rt, "render", ["MyComponent", %{count: 0}, %{}])
+
+  ## Resetting a Runtime
+
+      {:ok, rt} = QuickJSEx.start()
+      {:ok, _} = QuickJSEx.eval(rt, "globalThis.answer = 42")
+      :ok = QuickJSEx.reset(rt)
+      {:error, _reason} = QuickJSEx.eval(rt, "answer")
+
+  ## With a Supervisor
+
+      children = [
+        {QuickJSEx.Runtime, name: MyApp.JS, browser_stubs: true}
+      ]
+
+      {:ok, 3} = QuickJSEx.eval(MyApp.JS, "1 + 2")
   """
 
   @type runtime :: GenServer.server()

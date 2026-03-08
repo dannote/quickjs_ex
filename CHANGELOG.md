@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Refresh README and API docs for precompiled NIF installation and local build fallback
+- Document SSR usage with `browser_stubs: true`
+- Add examples for async execution, ES modules, and `reset/1`
+
 ## 0.3.0
 
 - Precompiled NIF binaries for macOS (aarch64, x86_64), Linux (aarch64, x86_64, gnu and musl), and Windows (x86_64, gnu and msvc) — Rust toolchain no longer required for most users

@@ -19,6 +19,9 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 quickjs_ex-*.tar
 
+# Ignore extracted package snapshots.
+quickjs_ex-[0-9.]*
+
 # Temporary files, for example, from tests.
 /tmp/
 
