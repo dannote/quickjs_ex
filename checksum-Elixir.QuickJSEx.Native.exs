@@ -1,9 +1,9 @@
 %{
-  "libquickjs_ex_nif-v0.3.0-nif-2.15-aarch64-apple-darwin.so.tar.gz" => "sha256:242ac250389c18a05d06496773d6e8d725916e6ae13a8fe026ea87e3018461ad",
-  "libquickjs_ex_nif-v0.3.0-nif-2.15-aarch64-unknown-linux-gnu.so.tar.gz" => "sha256:61b8897ae3093676b190e022591e974f5cfd42c8b87dd659551d67abe26144ac",
-  "libquickjs_ex_nif-v0.3.0-nif-2.15-x86_64-apple-darwin.so.tar.gz" => "sha256:b89f578cd8b2e0ec6387213ef26b2e429f7cb0047e34cdc9243f6e18a8169bf8",
-  "libquickjs_ex_nif-v0.3.0-nif-2.15-x86_64-unknown-linux-gnu.so.tar.gz" => "sha256:b4834518b1f3b8123039d6f08c66bfa7f90749877739b97dba0012b57d6f3064",
-  "libquickjs_ex_nif-v0.3.0-nif-2.15-x86_64-unknown-linux-musl.so.tar.gz" => "sha256:d65fe4dc76b90653443471d4790e370491115241e602bb23bf8ad4e2c9d9db99",
-  "quickjs_ex_nif-v0.3.0-nif-2.15-x86_64-pc-windows-gnu.dll.tar.gz" => "sha256:e97b3ede9a0646d3e821ad290c0eb680eb7b9a6a108180406a8a7967e0de1562",
-  "quickjs_ex_nif-v0.3.0-nif-2.15-x86_64-pc-windows-msvc.dll.tar.gz" => "sha256:2c1b17630214e2711caa5142f2267821d5003365f0f3c85c27b8ba953b63b38b",
+  "libquickjs_ex_nif-v0.3.1-nif-2.15-aarch64-apple-darwin.so.tar.gz" => "sha256:3709edb95f9926329c7eaf254ecc2666a9a4a7d39de2f103c98a2d888dec0eed",
+  "libquickjs_ex_nif-v0.3.1-nif-2.15-aarch64-unknown-linux-gnu.so.tar.gz" => "sha256:ef75a5031ef7ab7b2012b466de12fc493523f7c6e5a733098c477f6a4ee21b26",
+  "libquickjs_ex_nif-v0.3.1-nif-2.15-x86_64-apple-darwin.so.tar.gz" => "sha256:35b5baed084fd1e19bf3d6e89b2e0678c543dcaf719b54114ca13084f8627ac5",
+  "libquickjs_ex_nif-v0.3.1-nif-2.15-x86_64-unknown-linux-gnu.so.tar.gz" => "sha256:9ab1f47b22af69f317cb2e1deab71df61448fed31f473f6efb78658c62cad263",
+  "libquickjs_ex_nif-v0.3.1-nif-2.15-x86_64-unknown-linux-musl.so.tar.gz" => "sha256:9717e8f0c3c18af3f29bb90340209fbba0778772de247b82537fb42e5b775f9a",
+  "quickjs_ex_nif-v0.3.1-nif-2.15-x86_64-pc-windows-gnu.dll.tar.gz" => "sha256:6a5a3fac3d2db958c99840acf3640c6acdc0d50d63ce1d805598ff3a8b90472e",
+  "quickjs_ex_nif-v0.3.1-nif-2.15-x86_64-pc-windows-msvc.dll.tar.gz" => "sha256:8b49dc45da4c7e2db1d64e40be104f10c703a9173a049da00229c72bce03ab8a",
 }
