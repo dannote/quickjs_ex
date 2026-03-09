@@ -39,6 +39,12 @@ defmodule QuickJSEx.Native do
   @spec reset_runtime(reference()) :: {:ok, String.t()} | {:error, String.t()}
   def reset_runtime(_runtime), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec eval_with_callbacks(reference(), String.t(), [String.t()]) :: :ok
+  def eval_with_callbacks(_resource, _code, _fn_names), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec respond_callback(reference(), non_neg_integer(), String.t()) :: :ok
+  def respond_callback(_resource, _callback_id, _result_json), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec stop_runtime(reference()) :: :ok
   def stop_runtime(_runtime), do: :erlang.nif_error(:nif_not_loaded)
 end

@@ -3,6 +3,7 @@ mod runtime;
 mod worker;
 
 use rustler::{Env, LocalPid, NifResult, ResourceArc, Term};
+use std::sync::Arc;
 
 #[rustler::nif]
 fn start_runtime(env: Env, _pid: LocalPid, browser_stubs: bool) -> rustler::Atom {
@@ -129,6 +130,31 @@ fn reset_runtime(resource: ResourceArc<runtime::Runtime>) -> NifResult<(rustler:
         Ok(Err(err)) => Ok((atoms::error(), err)),
         Err(_) => Err(rustler::Error::Term(Box::new(atoms::dead_runtime()))),
     }
+}
+
+#[rustler::nif]
+fn eval_with_callbacks(
+    env: Env,
+    resource: ResourceArc<runtime::Runtime>,
+    code: String,
+    fn_names: Vec<String>,
+) -> NifResult<rustler::Atom> {
+    let pid = env.pid();
+    let callbacks = Arc::clone(&resource.callbacks);
+    resource
+        .send(worker::Message::EvalWithCallbacks(code, fn_names, callbacks, pid))
+        .map_err(|_| rustler::Error::Term(Box::new(atoms::dead_runtime())))?;
+    Ok(atoms::ok())
+}
+
+#[rustler::nif]
+fn respond_callback(
+    resource: ResourceArc<runtime::Runtime>,
+    callback_id: u64,
+    result_json: String,
+) -> rustler::Atom {
+    resource.callbacks.respond(callback_id, result_json);
+    atoms::ok()
 }
 
 #[rustler::nif(schedule = "DirtyIo")]

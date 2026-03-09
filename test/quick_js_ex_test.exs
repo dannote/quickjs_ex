@@ -460,4 +460,121 @@ defmodule QuickJSExTest do
       QuickJSEx.stop(rt2)
     end
   end
+
+  describe "eval_with_callbacks" do
+    test "simple eval without callbacks returns result" do
+      {:ok, resource} = QuickJSEx.start_resource()
+      QuickJSEx.eval_with_callbacks(resource, "1 + 2", [])
+
+      assert_receive {:quickjs_result, {:ok, "3"}}, 5_000
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "single function callback" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, """
+        const result = JSON.parse(fetch_user("alice"));
+        result.name
+      """, ["fetch_user"])
+
+      assert_receive {:quickjs_callback, callback_id, "fetch_user", args_json}, 5_000
+      assert Jason.decode!(args_json) == ["alice"]
+      QuickJSEx.respond_callback(resource, callback_id, Jason.encode!(%{name: "Alice"}))
+
+      assert_receive {:quickjs_result, {:ok, "Alice"}}, 5_000
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "multiple registered functions" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, """
+        const user = JSON.parse(fetch_user("bob"));
+        const saved = JSON.parse(save_record("users", JSON.stringify(user)));
+        saved.id
+      """, ["fetch_user", "save_record"])
+
+      assert_receive {:quickjs_callback, id1, "fetch_user", args1}, 5_000
+      assert Jason.decode!(args1) == ["bob"]
+      QuickJSEx.respond_callback(resource, id1, Jason.encode!(%{name: "Bob"}))
+
+      assert_receive {:quickjs_callback, id2, "save_record", args2}, 5_000
+      [table, data] = Jason.decode!(args2)
+      assert table == "users"
+      assert Jason.decode!(data) == %{"name" => "Bob"}
+      QuickJSEx.respond_callback(resource, id2, Jason.encode!(%{id: 42}))
+
+      assert_receive {:quickjs_result, {:ok, "42"}}, 5_000
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "function with multiple arguments" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, """
+        const result = JSON.parse(add(1, 2, 3));
+        result
+      """, ["add"])
+
+      assert_receive {:quickjs_callback, callback_id, "add", args_json}, 5_000
+      assert Jason.decode!(args_json) == [1, 2, 3]
+      QuickJSEx.respond_callback(resource, callback_id, Jason.encode!(6))
+
+      assert_receive {:quickjs_result, {:ok, "6"}}, 5_000
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "function with no arguments" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, """
+        const ts = get_timestamp();
+        ts
+      """, ["get_timestamp"])
+
+      assert_receive {:quickjs_callback, callback_id, "get_timestamp", args_json}, 5_000
+      assert Jason.decode!(args_json) == []
+      QuickJSEx.respond_callback(resource, callback_id, "1234567890")
+
+      assert_receive {:quickjs_result, {:ok, "1234567890"}}, 5_000
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "JS error returns error result" do
+      {:ok, resource} = QuickJSEx.start_resource()
+      QuickJSEx.eval_with_callbacks(resource, "throw new Error('boom')", [])
+
+      assert_receive {:quickjs_result, {:error, msg}}, 5_000
+      assert msg =~ "boom"
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "functions are removed after eval completes" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, "1 + 1", ["my_func"])
+      assert_receive {:quickjs_result, {:ok, "2"}}, 5_000
+
+      assert {:error, _} = QuickJSEx.eval_resource(resource, "my_func()")
+      QuickJSEx.stop_resource(resource)
+    end
+
+    test "resource eval still works after callback eval" do
+      {:ok, resource} = QuickJSEx.start_resource()
+
+      QuickJSEx.eval_with_callbacks(resource, """
+        const r = JSON.parse(ping());
+        globalThis.saved = r;
+      """, ["ping"])
+
+      assert_receive {:quickjs_callback, callback_id, "ping", _}, 5_000
+      QuickJSEx.respond_callback(resource, callback_id, Jason.encode!("pong"))
+
+      assert_receive {:quickjs_result, {:ok, _}}, 5_000
+
+      assert {:ok, "pong"} = QuickJSEx.eval_resource(resource, "saved")
+      QuickJSEx.stop_resource(resource)
+    end
+  end
 end

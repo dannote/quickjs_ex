@@ -1,5 +1,11 @@
 use base64::{engine::general_purpose::STANDARD, Engine};
 use rquickjs::{CatchResultExt, Context, Function, Runtime, Value};
+use std::sync::Arc;
+use std::time::Duration;
+
+use crate::atoms;
+use crate::runtime::{send_to_pid, CallbackRegistry};
+use rustler::LocalPid;
 
 type ResultSender = std::sync::mpsc::Sender<Result<String, String>>;
 
@@ -9,6 +15,7 @@ pub enum Message {
     LoadModule(String, String, ResultSender),
     Reset(ResultSender),
     Stop(std::sync::mpsc::Sender<()>),
+    EvalWithCallbacks(String, Vec<String>, Arc<CallbackRegistry>, LocalPid),
 }
 
 static MODULE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -181,6 +188,25 @@ impl Worker {
                     let result = self.reset();
                     let _ = tx.send(result);
                 }
+                Message::EvalWithCallbacks(code, fn_names, callbacks, caller_pid) => {
+                    let result =
+                        match self.install_callback_functions(&fn_names, &callbacks, &caller_pid) {
+                            Ok(()) => self.eval(&code),
+                            Err(e) => Err(e),
+                        };
+                    self.remove_callback_functions(&fn_names);
+                    callbacks.clear();
+                    match result {
+                        Ok(val) => send_to_pid(
+                            &caller_pid,
+                            (atoms::quickjs_result(), (atoms::ok(), val)),
+                        ),
+                        Err(err) => send_to_pid(
+                            &caller_pid,
+                            (atoms::quickjs_result(), (atoms::error(), err)),
+                        ),
+                    }
+                }
                 Message::Stop(tx) => {
                     let _ = tx.send(());
                     break;
@@ -331,6 +357,75 @@ impl Worker {
 
         self.drain_jobs();
         Ok("ok".to_string())
+    }
+
+    fn install_callback_functions(
+        &self,
+        fn_names: &[String],
+        callbacks: &Arc<CallbackRegistry>,
+        caller_pid: &LocalPid,
+    ) -> Result<(), String> {
+        let cb = Arc::clone(callbacks);
+        let pid = *caller_pid;
+
+        self.ctx.with(|ctx| {
+            let globals = ctx.globals();
+
+            // Install a single Rust dispatcher: __quickjs_dispatch(name, args_json) -> string
+            let dispatch = Function::new(
+                ctx.clone(),
+                move |ctx: rquickjs::Ctx<'_>,
+                      name: String,
+                      args_json: String|
+                      -> rquickjs::Result<String> {
+                    let (id, rx) = cb.register();
+                    send_to_pid(
+                        &pid,
+                        (atoms::quickjs_callback(), id, name.clone(), args_json),
+                    );
+                    match rx.recv_timeout(Duration::from_secs(15)) {
+                        Ok(result) => Ok(result),
+                        Err(_) => {
+                            ctx.throw(
+                                rquickjs::String::from_str(
+                                    ctx.clone(),
+                                    &format!("Callback '{}' timed out", name),
+                                )?
+                                .into(),
+                            );
+                            Err(rquickjs::Error::Exception)
+                        }
+                    }
+                },
+            )
+            .map_err(|e| format!("Failed to create __quickjs_dispatch: {e}"))?;
+
+            globals
+                .set("__quickjs_dispatch", dispatch)
+                .map_err(|e| format!("Failed to set __quickjs_dispatch: {e}"))?;
+
+            // Create JS wrapper functions for each registered name
+            for fn_name in fn_names {
+                let wrapper_code = format!(
+                    "globalThis[\"{fn_name}\"] = function() {{ return __quickjs_dispatch(\"{fn_name}\", JSON.stringify(Array.from(arguments))); }}"
+                );
+                ctx.eval::<(), _>(wrapper_code.as_bytes().to_vec())
+                    .catch(&ctx)
+                    .map_err(|e| format!("Failed to install wrapper for {fn_name}: {e:?}"))?;
+            }
+
+            Ok(())
+        })
+    }
+
+    fn remove_callback_functions(&self, fn_names: &[String]) {
+        self.ctx.with(|ctx| {
+            let globals = ctx.globals();
+            let _ = globals.remove("__quickjs_dispatch");
+            for fn_name in fn_names {
+                let _ = globals.remove(fn_name.as_str());
+            }
+        });
     }
 
     fn call(&mut self, fn_name: &str, args_json: &str) -> Result<String, String> {

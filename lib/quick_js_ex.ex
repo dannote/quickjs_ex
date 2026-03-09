@@ -127,4 +127,47 @@ defmodule QuickJSEx do
   def stop(runtime) do
     QuickJSEx.Runtime.stop(runtime)
   end
+
+  @doc false
+  def start_resource(opts \\ []) do
+    browser_stubs = Keyword.get(opts, :browser_stubs, false)
+    QuickJSEx.Native.start_runtime(self(), browser_stubs)
+
+    receive do
+      {:ok, resource} -> {:ok, resource}
+      {:error, reason} -> {:error, reason}
+    after
+      5_000 -> {:error, :timeout}
+    end
+  end
+
+  @doc false
+  def eval_resource(resource, code) do
+    case QuickJSEx.Native.eval_sync(resource, code) do
+      {:ok, json} -> {:ok, decode_result(json)}
+      {:error, msg} -> {:error, msg}
+    end
+  end
+
+  @doc false
+  def eval_with_callbacks(resource, code, fn_names) do
+    QuickJSEx.Native.eval_with_callbacks(resource, code, fn_names)
+  end
+
+  @doc false
+  def respond_callback(resource, callback_id, result_json) do
+    QuickJSEx.Native.respond_callback(resource, callback_id, result_json)
+  end
+
+  @doc false
+  def stop_resource(resource) do
+    QuickJSEx.Native.stop_runtime(resource)
+  end
+
+  defp decode_result(json) do
+    case Jason.decode(json) do
+      {:ok, value} -> value
+      {:error, _} -> json
+    end
+  end
 end
